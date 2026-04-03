@@ -1,5 +1,6 @@
 #!/bin/bash
 # Install the thin VPN server agent as a systemd service.
+# Idempotent — safe to run multiple times. Preserves existing token.
 # Run from the repo root: sudo bash deploy/install-agent.sh [port] [host]
 # Default: port=8080, host=0.0.0.0
 set -euo pipefail
@@ -13,6 +14,32 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ $EUID -ne 0 ]]; then
     echo "Run as root: sudo bash $0"
     exit 1
+fi
+
+if [[ ! -f "$REPO_DIR/main.py" ]]; then
+    echo "ERROR: main.py not found in $REPO_DIR"
+    echo "Run this script from the agent repo root: sudo bash deploy/install-agent.sh"
+    exit 1
+fi
+
+# --- Check port conflict ---
+pid=$(ss -tlnp "sport = :$AGENT_PORT" 2>/dev/null | grep -v ^State | awk '{print $6}' | grep -oP 'pid=\K[0-9]+' | head -1)
+if [[ -n "$pid" ]]; then
+    proc=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+    unit=$(systemctl list-units --type=service --state=running --no-pager 2>/dev/null | grep "vpn-agent" | awk '{print $1}' || true)
+    if [[ -n "$unit" ]]; then
+        echo "vpn-agent already running on port $AGENT_PORT, will restart"
+    else
+        echo "ERROR: Port $AGENT_PORT is already used by $proc (pid $pid)"
+        echo "Free the port first or choose a different one"
+        exit 1
+    fi
+fi
+
+# --- Check sing-box ---
+if ! command -v sing-box &>/dev/null; then
+    echo "WARNING: sing-box is not installed. Agent will start but health check will report 'down'"
+    echo "Run install-singbox.sh first"
 fi
 
 # --- Install dependencies ---
@@ -71,18 +98,24 @@ systemctl restart vpn-agent
 
 # --- Firewall ---
 if [[ "$AGENT_HOST" != "127.0.0.1" ]]; then
-    ufw allow "${AGENT_PORT}/tcp"
+    ufw allow "${AGENT_PORT}/tcp" 2>/dev/null || true
     echo "Opened port ${AGENT_PORT}/tcp in firewall"
 fi
 
-echo ""
-echo "=== Agent installed ==="
-echo "Port:   ${AGENT_PORT}"
-echo "Host:   ${AGENT_HOST}"
-echo "Token:  ${AGENT_TOKEN}"
-echo "Status: systemctl status vpn-agent"
-echo "Logs:   journalctl -u vpn-agent -f"
-echo ""
-echo "Add this server to the backend:"
-echo "  POST /api/servers"
-echo "  {\"name\": \"$(hostname)\", \"ip\": \"$(curl -s ifconfig.me)\", \"agent_port\": ${AGENT_PORT}, \"agent_token\": \"${AGENT_TOKEN}\"}"
+# --- Verify ---
+sleep 1
+if systemctl is-active --quiet vpn-agent; then
+    echo ""
+    echo "=== Agent installed ==="
+    echo "Port:   ${AGENT_PORT}"
+    echo "Host:   ${AGENT_HOST}"
+    echo "Token:  ${AGENT_TOKEN}"
+    echo ""
+    echo "Add this server to the backend:"
+    echo "  POST /api/servers"
+    echo "  {\"name\": \"$(hostname)\", \"ip\": \"$(curl -s ifconfig.me)\", \"agent_port\": ${AGENT_PORT}, \"agent_token\": \"${AGENT_TOKEN}\"}"
+else
+    echo ""
+    echo "ERROR: Agent failed to start. Check: journalctl -u vpn-agent -n 20"
+    exit 1
+fi
