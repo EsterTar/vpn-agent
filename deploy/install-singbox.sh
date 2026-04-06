@@ -24,7 +24,7 @@ fi
 
 # --- Check port conflicts ---
 for port in "$@"; do
-    pid=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v ^State | awk '{print $6}' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+    pid=$(ss -tlnp "sport = :$port" 2>/dev/null | awk 'NR>1 {print $6}' | awk -F'pid=' '{print $2}' | awk -F',' '{print $1}' | head -1 || true)
     if [[ -n "$pid" ]]; then
         proc=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
         if [[ "$proc" != "sing-box" ]]; then
@@ -35,14 +35,16 @@ for port in "$@"; do
     fi
 done
 
+# --- Install dependencies ---
+apt-get update -qq
+apt-get install -y -qq curl jq ufw
+
 # --- Install sing-box ---
 if command -v sing-box &>/dev/null; then
     echo "sing-box already installed: $(sing-box version | head -1)"
     echo "Skipping installation, updating config..."
 else
     echo "=== Installing sing-box ==="
-    apt-get update -qq
-    apt-get install -y -qq curl jq ufw
     bash <(curl -fsSL https://sing-box.app/deb-install.sh)
 
     if ! command -v sing-box &>/dev/null; then

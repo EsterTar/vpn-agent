@@ -23,7 +23,7 @@ if [[ ! -f "$REPO_DIR/main.py" ]]; then
 fi
 
 # --- Check port conflict ---
-pid=$(ss -tlnp "sport = :$AGENT_PORT" 2>/dev/null | grep -v ^State | awk '{print $6}' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+pid=$(ss -tlnp "sport = :$AGENT_PORT" 2>/dev/null | awk 'NR>1 {print $6}' | awk -F'pid=' '{print $2}' | awk -F',' '{print $1}' | head -1 || true)
 if [[ -n "$pid" ]]; then
     proc=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
     unit=$(systemctl list-units --type=service --state=running --no-pager 2>/dev/null | grep "vpn-agent" | awk '{print $1}' || true)
@@ -51,14 +51,15 @@ apt-get install -y -qq python3 python3-pip python3-venv
 echo "=== Setting up agent ==="
 mkdir -p "$INSTALL_DIR"
 
-# Copy agent code
+# Copy agent code and requirements
 cp "$REPO_DIR/main.py" "$INSTALL_DIR/main.py"
+cp "$REPO_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
 
 # Create virtualenv and install deps
 if [[ ! -d "$INSTALL_DIR/venv" ]]; then
     python3 -m venv "$INSTALL_DIR/venv"
 fi
-"$INSTALL_DIR/venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
+"$INSTALL_DIR/venv/bin/pip" install -q --upgrade -r "$INSTALL_DIR/requirements.txt"
 
 # --- Generate config (only if not exists) ---
 if [[ ! -f "$INSTALL_DIR/server-agent.env" ]]; then
@@ -71,7 +72,7 @@ SINGBOX_SERVICE='sing-box'
 EOF
     echo "Generated new token: ${AGENT_TOKEN}"
 else
-    AGENT_TOKEN=$(grep AGENT_TOKEN "$INSTALL_DIR/server-agent.env" | cut -d"'" -f2)
+    AGENT_TOKEN=$(awk -F"'" '/AGENT_TOKEN/ {print $2}' "$INSTALL_DIR/server-agent.env")
     echo "Using existing token from server-agent.env"
 fi
 
@@ -105,6 +106,7 @@ fi
 # --- Verify ---
 sleep 1
 if systemctl is-active --quiet vpn-agent; then
+    SERVER_IP=$(curl -s --connect-timeout 5 ifconfig.me || echo "<unknown>")
     echo ""
     echo "=== Agent installed ==="
     echo "Port:   ${AGENT_PORT}"
@@ -113,7 +115,7 @@ if systemctl is-active --quiet vpn-agent; then
     echo ""
     echo "Add this server to the backend:"
     echo "  POST /api/servers"
-    echo "  {\"name\": \"$(hostname)\", \"ip\": \"$(curl -s ifconfig.me)\", \"agent_port\": ${AGENT_PORT}, \"agent_token\": \"${AGENT_TOKEN}\"}"
+    echo "  {\"name\": \"$(hostname)\", \"ip\": \"${SERVER_IP}\", \"agent_port\": ${AGENT_PORT}, \"agent_token\": \"${AGENT_TOKEN}\"}"
 else
     echo ""
     echo "ERROR: Agent failed to start. Check: journalctl -u vpn-agent -n 20"
