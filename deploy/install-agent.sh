@@ -23,7 +23,7 @@ if [[ ! -f "$REPO_DIR/main.py" ]]; then
 fi
 
 # --- Check port conflict ---
-pid=$(ss -tlnp "sport = :$AGENT_PORT" 2>/dev/null | grep -v ^State | awk '{print $6}' | grep -oP 'pid=\K[0-9]+' | head -1)
+pid=$(ss -tlnp "sport = :$AGENT_PORT" 2>/dev/null | grep -v ^State | awk '{print $6}' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
 if [[ -n "$pid" ]]; then
     proc=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
     unit=$(systemctl list-units --type=service --state=running --no-pager 2>/dev/null | grep "vpn-agent" | awk '{print $1}' || true)

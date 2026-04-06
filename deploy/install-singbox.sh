@@ -24,7 +24,7 @@ fi
 
 # --- Check port conflicts ---
 for port in "$@"; do
-    pid=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v ^State | awk '{print $6}' | grep -oP 'pid=\K[0-9]+' | head -1)
+    pid=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v ^State | awk '{print $6}' | grep -oP 'pid=\K[0-9]+' | head -1 || true)
     if [[ -n "$pid" ]]; then
         proc=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
         if [[ "$proc" != "sing-box" ]]; then
