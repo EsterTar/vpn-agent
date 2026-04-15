@@ -51,9 +51,11 @@ apt-get install -y -qq python3 python3-pip python3-venv
 echo "=== Setting up agent ==="
 mkdir -p "$INSTALL_DIR"
 
-# Copy agent code and requirements
-cp "$REPO_DIR/main.py" "$INSTALL_DIR/main.py"
-cp "$REPO_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
+# Copy agent code and requirements (skip if repo and install dir are the same)
+if [[ "$REPO_DIR" != "$INSTALL_DIR" ]]; then
+    cp "$REPO_DIR/main.py" "$INSTALL_DIR/main.py"
+    cp "$REPO_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
+fi
 
 # Create virtualenv and install deps
 if [[ ! -d "$INSTALL_DIR/venv" ]]; then
