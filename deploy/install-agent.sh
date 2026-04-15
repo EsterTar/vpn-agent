@@ -7,7 +7,7 @@ set -euo pipefail
 
 AGENT_PORT="${1:-8080}"
 AGENT_HOST="${2:-0.0.0.0}"
-INSTALL_DIR="/opt/vpn-agent"
+INSTALL_DIR="/data/docker/agent"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Validate ---
