@@ -63,6 +63,10 @@ else
     ok "xray installed: $(xray version 2>/dev/null | head -1)"
 fi
 
+# Install script auto-starts xray — stop it until cutover to avoid port conflict with sing-box
+systemctl stop xray 2>/dev/null || true
+ok "xray stopped (will start during cutover)"
+
 # Patch xray.service to support config reload via SIGHUP
 SERVICE_FILE="/etc/systemd/system/xray.service"
 if [[ -f "$SERVICE_FILE" ]] && ! grep -q "ExecReload" "$SERVICE_FILE"; then
