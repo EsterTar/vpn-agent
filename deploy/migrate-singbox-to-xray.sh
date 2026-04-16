@@ -214,10 +214,14 @@ ok "Config is valid"
 
 sep "Updating agent code"
 
-cp "$REPO_DIR/main.py"          "$INSTALL_DIR/main.py"
-cp "$REPO_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
-cp -r "$REPO_DIR/app"           "$INSTALL_DIR/app"
-ok "Agent files updated"
+if [[ "$REPO_DIR" != "$INSTALL_DIR" ]]; then
+    cp "$REPO_DIR/main.py"          "$INSTALL_DIR/main.py"
+    cp "$REPO_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt"
+    cp -r "$REPO_DIR/app"           "$INSTALL_DIR/app"
+    ok "Agent files copied from $REPO_DIR"
+else
+    ok "Repo and install dir are the same — skipping file copy"
+fi
 
 log "Updating Python dependencies..."
 "$INSTALL_DIR/venv/bin/pip" install -q --upgrade pip
