@@ -24,7 +24,7 @@ class RealityClientSettings(BaseModel):
     server_name: str           # SNI — один, не список
     public_key: str            # public key следующего хопа
     short_id: str              # один short_id для соединения
-    fingerprint: str = "chrome"
+    fingerprint: str = "qq"
 
 
 # ── Relay target (следующий хоп в цепочке) ───────────────────────────────────
