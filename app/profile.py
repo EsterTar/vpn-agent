@@ -1,4 +1,4 @@
-"""Server profile: protocol/transport/security settings stored on disk."""
+"""Server config: list of inbound profiles stored on disk."""
 
 from pathlib import Path
 from typing import Literal
@@ -39,26 +39,32 @@ class RelayTarget(BaseModel):
     reality: RealityClientSettings | None = None
 
 
-# ── Профиль сервера ───────────────────────────────────────────────────────────
+# ── Профиль одного inbound-а ─────────────────────────────────────────────────
 
-class ServerProfile(BaseModel):
+class InboundProfile(BaseModel):
     protocol: Literal["vless"] = "vless"
     port: int
     transport: Literal["tcp", "ws", "grpc"] = "tcp"
     security: Literal["reality", "tls", "none"] = "reality"
-    inbound_tag: str = "vless-in"
+    inbound_tag: str
     reality: RealitySettings | None = None
     relay: RelayTarget | None = None  # None = exit-нода (freedom)
 
 
-def read_profile() -> ServerProfile | None:
+# ── Конфиг сервера (все inbound-ы) ───────────────────────────────────────────
+
+class ServerConfig(BaseModel):
+    inbounds: list[InboundProfile]
+
+
+def read_profile() -> ServerConfig | None:
     path = Path(settings.profile_path)
     if not path.exists():
         return None
-    return ServerProfile.model_validate_json(path.read_text())
+    return ServerConfig.model_validate_json(path.read_text())
 
 
-def write_profile(profile: ServerProfile) -> None:
+def write_profile(config: ServerConfig) -> None:
     path = Path(settings.profile_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(profile.model_dump_json(indent=2))
+    path.write_text(config.model_dump_json(indent=2))

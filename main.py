@@ -1,6 +1,7 @@
 """
 VPN Server Agent — thin FastAPI agent for xray management.
-Backend sends a server profile and user UUIDs; agent owns config generation.
+Backend sends a server config (list of inbound profiles) and user UUIDs;
+agent owns config generation.
 
 Launch:
     uvicorn main:app --host 0.0.0.0 --port 8080
@@ -14,7 +15,7 @@ from pydantic import BaseModel
 
 from app import xray
 from app.config_builder import build_config, extract_users
-from app.profile import ServerProfile, read_profile, write_profile
+from app.profile import ServerConfig, read_profile, write_profile
 from app.settings import settings
 
 app = FastAPI(title="VPN Server Agent")
@@ -27,28 +28,40 @@ def verify_token(creds: HTTPAuthorizationCredentials = Security(security)) -> No
         raise HTTPException(401, "Invalid token")
 
 
-# ── Server profile ────────────────────────────────────────────────────────────
+# ── Server config ─────────────────────────────────────────────────────────────
 
 
 @app.put("/server", dependencies=[Depends(verify_token)])
-def set_server(profile: ServerProfile) -> dict:
-    """Set server profile (protocol, port, keys). Preserves existing users."""
+def set_server(server_config: ServerConfig) -> dict:
+    """Set server config (all inbound profiles). Preserves existing users."""
     with _lock:
-        old_config = xray.read_config()
-        old_profile = read_profile()
-        users = extract_users(old_config, old_profile.inbound_tag if old_profile else profile.inbound_tag)
+        old_xray = xray.read_config()
+        old_config = read_profile()
 
-        write_profile(profile)
-        _apply(build_config(profile, users), old_config)
-    return {"status": "applied", "public_key": profile.reality.public_key if profile.reality else None}
+        old_tags = (
+            [ib.inbound_tag for ib in old_config.inbounds]
+            if old_config
+            else [ib.inbound_tag for ib in server_config.inbounds]
+        )
+        users = extract_users(old_xray, old_tags)
+
+        write_profile(server_config)
+        _apply(build_config(server_config, users), old_xray)
+
+    public_keys = {
+        ib.inbound_tag: ib.reality.public_key
+        for ib in server_config.inbounds
+        if ib.reality
+    }
+    return {"status": "applied", "public_keys": public_keys}
 
 
 @app.get("/server", dependencies=[Depends(verify_token)])
-def get_server() -> ServerProfile:
-    profile = read_profile()
-    if profile is None:
-        raise HTTPException(404, "Server profile not set")
-    return profile
+def get_server() -> ServerConfig:
+    config = read_profile()
+    if config is None:
+        raise HTTPException(404, "Server config not set")
+    return config
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -60,38 +73,41 @@ class UserIn(BaseModel):
 
 @app.post("/users", dependencies=[Depends(verify_token)])
 def add_user(user: UserIn) -> dict:
-    """Add a user by UUID. Rebuilds and reloads xray config."""
+    """Add a user by UUID to all inbounds. Rebuilds and reloads xray config."""
     with _lock:
-        profile = _require_profile()
-        old_config = xray.read_config()
-        users = extract_users(old_config, profile.inbound_tag)
+        server_config = _require_config()
+        old_xray = xray.read_config()
+        tags = [ib.inbound_tag for ib in server_config.inbounds]
+        users = extract_users(old_xray, tags)
 
         if user.id in users:
             raise HTTPException(409, f"User '{user.id}' already exists")
 
-        _apply(build_config(profile, [*users, user.id]), old_config)
+        _apply(build_config(server_config, [*users, user.id]), old_xray)
     return {"status": "added", "id": user.id}
 
 
 @app.delete("/users/{uuid}", dependencies=[Depends(verify_token)])
 def remove_user(uuid: str) -> dict:
-    """Remove a user by UUID. Rebuilds and reloads xray config."""
+    """Remove a user by UUID from all inbounds. Rebuilds and reloads xray config."""
     with _lock:
-        profile = _require_profile()
-        old_config = xray.read_config()
-        users = extract_users(old_config, profile.inbound_tag)
+        server_config = _require_config()
+        old_xray = xray.read_config()
+        tags = [ib.inbound_tag for ib in server_config.inbounds]
+        users = extract_users(old_xray, tags)
 
         if uuid not in users:
             raise HTTPException(404, f"User '{uuid}' not found")
 
-        _apply(build_config(profile, [u for u in users if u != uuid]), old_config)
+        _apply(build_config(server_config, [u for u in users if u != uuid]), old_xray)
     return {"status": "removed", "id": uuid}
 
 
 @app.get("/users", dependencies=[Depends(verify_token)])
 def list_users() -> dict:
-    profile = _require_profile()
-    users = extract_users(xray.read_config(), profile.inbound_tag)
+    server_config = _require_config()
+    tags = [ib.inbound_tag for ib in server_config.inbounds]
+    users = extract_users(xray.read_config(), tags)
     return {"users": users}
 
 
@@ -122,11 +138,11 @@ def restart() -> dict:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _require_profile() -> ServerProfile:
-    profile = read_profile()
-    if profile is None:
-        raise HTTPException(409, "Server profile not set — call PUT /server first")
-    return profile
+def _require_config() -> ServerConfig:
+    config = read_profile()
+    if config is None:
+        raise HTTPException(409, "Server config not set — call PUT /server first")
+    return config
 
 
 def _apply(new: dict, old: dict) -> None:

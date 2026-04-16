@@ -1,6 +1,6 @@
-"""Build a full xray config from a ServerProfile + list of user UUIDs."""
+"""Build a full xray config from a ServerConfig + list of user UUIDs."""
 
-from .profile import RelayTarget, ServerProfile
+from .profile import InboundProfile, RelayTarget, ServerConfig
 
 _API_INBOUND = {
     "tag": "api-in",
@@ -23,9 +23,61 @@ _STATS_SECTIONS = {
 }
 
 
-def build_config(profile: ServerProfile, users: list[str]) -> dict:
+def build_config(server_config: ServerConfig, users: list[str]) -> dict:
     """Return a complete xray config dict ready to write to disk."""
-    inbound: dict = {
+    inbounds = [_API_INBOUND]
+    outbounds = [
+        {"protocol": "freedom", "tag": "direct"},
+        {"protocol": "blackhole", "tag": "block"},
+    ]
+    routing_rules: list[dict] = [
+        {"inboundTag": ["api-in"], "outboundTag": "api"},
+    ]
+
+    for profile in server_config.inbounds:
+        inbounds.append(_build_inbound(profile, users))
+
+        if profile.relay is not None:
+            relay_tag = f"relay-{profile.inbound_tag}"
+            outbounds.append(_relay_outbound(profile.relay, relay_tag))
+            routing_rules.append({
+                "inboundTag": [profile.inbound_tag],
+                "outboundTag": relay_tag,
+            })
+
+    return {
+        "log": {
+            "access": "/var/log/xray/access.log",
+            "error": "/var/log/xray/error.log",
+            "loglevel": "warning",
+        },
+        **_STATS_SECTIONS,
+        "inbounds": inbounds,
+        "outbounds": outbounds,
+        "routing": {"rules": routing_rules},
+    }
+
+
+def extract_users(config: dict, inbound_tags: list[str]) -> list[str]:
+    """Extract unique user UUIDs from the given inbounds in an existing xray config."""
+    tags = set(inbound_tags)
+    seen: set[str] = set()
+    users: list[str] = []
+    for inbound in config.get("inbounds", []):
+        if inbound.get("tag") in tags:
+            for client in inbound.get("settings", {}).get("clients", []):
+                uid = client["id"]
+                if uid not in seen:
+                    seen.add(uid)
+                    users.append(uid)
+    return users
+
+
+# ── Inbound ───────────────────────────────────────────────────────────────────
+
+
+def _build_inbound(profile: InboundProfile, users: list[str]) -> dict:
+    return {
         "tag": profile.inbound_tag,
         "listen": "0.0.0.0",
         "port": profile.port,
@@ -37,75 +89,19 @@ def build_config(profile: ServerProfile, users: list[str]) -> dict:
         "streamSettings": _inbound_stream_settings(profile),
     }
 
-    outbounds = _build_outbounds(profile)
 
-    return {
-        "log": {
-            "access": "/var/log/xray/access.log",
-            "error": "/var/log/xray/error.log",
-            "loglevel": "warning",
-        },
-        **_STATS_SECTIONS,
-        "inbounds": [_API_INBOUND, inbound],
-        "outbounds": outbounds,
-        "routing": {
-            "rules": [
-                {"inboundTag": ["api-in"], "outboundTag": "api"},
-            ],
-        },
-    }
+def _build_clients(profile: InboundProfile, users: list[str]) -> list[dict]:
+    flow = "xtls-rprx-vision" if profile.protocol == "vless" and profile.security == "reality" else ""
+    clients = []
+    for uid in users:
+        client: dict = {"id": uid, "email": uid}
+        if flow:
+            client["flow"] = flow
+        clients.append(client)
+    return clients
 
 
-def extract_users(config: dict, inbound_tag: str) -> list[str]:
-    """Extract user UUIDs from an existing xray config."""
-    for inbound in config.get("inbounds", []):
-        if inbound.get("tag") == inbound_tag:
-            return [c["id"] for c in inbound.get("settings", {}).get("clients", [])]
-    return []
-
-
-# ── Outbounds ─────────────────────────────────────────────────────────────────
-
-
-def _build_outbounds(profile: ServerProfile) -> list[dict]:
-    if profile.relay is None:
-        # Exit node: traffic goes directly to internet
-        return [
-            {"protocol": "freedom", "tag": "direct"},
-            {"protocol": "blackhole", "tag": "block"},
-        ]
-
-    # Relay node: traffic forwarded to next hop
-    return [
-        _relay_outbound(profile.relay),
-        {"protocol": "blackhole", "tag": "block"},
-    ]
-
-
-def _relay_outbound(relay: RelayTarget) -> dict:
-    flow = "xtls-rprx-vision" if relay.protocol == "vless" and relay.security == "reality" else ""
-    user: dict = {"id": relay.user_id, "encryption": "none"}
-    if flow:
-        user["flow"] = flow
-
-    return {
-        "tag": "direct",   # keep tag "direct" — routing rules stay unchanged
-        "protocol": relay.protocol,
-        "settings": {
-            "vnext": [{
-                "address": relay.address,
-                "port": relay.port,
-                "users": [user],
-            }]
-        },
-        "streamSettings": _outbound_stream_settings(relay),
-    }
-
-
-# ── Stream settings ───────────────────────────────────────────────────────────
-
-
-def _inbound_stream_settings(profile: ServerProfile) -> dict:
+def _inbound_stream_settings(profile: InboundProfile) -> dict:
     """realitySettings for inbound (server side): plural forms, privateKey, dest."""
     ss: dict = {"network": profile.transport}
 
@@ -126,6 +122,29 @@ def _inbound_stream_settings(profile: ServerProfile) -> dict:
     return ss
 
 
+# ── Outbounds ─────────────────────────────────────────────────────────────────
+
+
+def _relay_outbound(relay: RelayTarget, tag: str) -> dict:
+    flow = "xtls-rprx-vision" if relay.protocol == "vless" and relay.security == "reality" else ""
+    user: dict = {"id": relay.user_id, "encryption": "none"}
+    if flow:
+        user["flow"] = flow
+
+    return {
+        "tag": tag,
+        "protocol": relay.protocol,
+        "settings": {
+            "vnext": [{
+                "address": relay.address,
+                "port": relay.port,
+                "users": [user],
+            }]
+        },
+        "streamSettings": _outbound_stream_settings(relay),
+    }
+
+
 def _outbound_stream_settings(relay: RelayTarget) -> dict:
     """realitySettings for outbound (client side): singular forms, publicKey, fingerprint."""
     ss: dict = {"network": relay.transport}
@@ -144,17 +163,3 @@ def _outbound_stream_settings(relay: RelayTarget) -> dict:
         ss["security"] = "tls"
 
     return ss
-
-
-# ── Clients ───────────────────────────────────────────────────────────────────
-
-
-def _build_clients(profile: ServerProfile, users: list[str]) -> list[dict]:
-    flow = "xtls-rprx-vision" if profile.protocol == "vless" and profile.security == "reality" else ""
-    clients = []
-    for uid in users:
-        client: dict = {"id": uid, "email": uid}
-        if flow:
-            client["flow"] = flow
-        clients.append(client)
-    return clients
