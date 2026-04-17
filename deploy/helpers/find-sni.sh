@@ -54,8 +54,8 @@ check_candidate() {
         elif echo "$server_name $candidate_name" | grep -qiE "yandex|sber|vk |mail\.ru|mts|beeline|megafon|rostelecom"; then
             # Проверяем совпадение по имени организации (один холдинг)
             local server_brand candidate_brand
-            server_brand=$(echo "$server_name" | grep -ioE "yandex|sber|vk|mail\.ru|mts|beeline|megafon|rostelecom" | head -1)
-            candidate_brand=$(echo "$candidate_name" | grep -ioE "yandex|sber|vk|mail\.ru|mts|beeline|megafon|rostelecom" | head -1)
+            server_brand=$(echo "$server_name" | grep -ioE "yandex|sber|vk|mail\.ru|mts|beeline|megafon|rostelecom" | head -1 || true)
+            candidate_brand=$(echo "$candidate_name" | grep -ioE "yandex|sber|vk|mail\.ru|mts|beeline|megafon|rostelecom" | head -1 || true)
             if [[ -n "$server_brand" && "$server_brand" == "$candidate_brand" ]]; then
                 echo -e "  ${GREEN}✓ Тот же холдинг (${server_asn} / ${candidate_asn}, оба ${server_brand}) — хороший кандидат${NC}"
             else
@@ -67,7 +67,7 @@ check_candidate() {
     fi
 
     local tls_info
-    tls_info=$(echo | openssl s_client -connect "${domain}:443" -alpn h2 2>&1)
+    tls_info=$(echo | timeout 5 openssl s_client -connect "${domain}:443" -alpn h2 2>&1 || true)
 
     if echo "$tls_info" | grep -q "TLSv1.3"; then
         echo -e "  ${GREEN}✓ TLS 1.3 поддерживается${NC}"
