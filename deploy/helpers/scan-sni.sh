@@ -59,11 +59,17 @@ echo ""
 # --- Фильтрация лучших кандидатов ---
 
 if [[ -f "$OUTPUT" ]]; then
-    log "Домены с TLS 1.3 в твоей подсети:"
+    log "Домены с TLS 1.3 в твоей подсети (все результаты = TLS 1.3 + H2):"
     echo "---"
-    # RealiTLScanner выводит: IP:PORT DOMAIN TLS_VERSION
-    # Фильтруем TLS 1.3 и убираем пустые/IP-only
-    grep -i "tls.*1.3\|TLSv1.3\|version.*303" "$OUTPUT" 2>/dev/null | head -20 || true
+    # CSV: IP,ORIGIN,CERT_DOMAIN,CERT_ISSUER,GEO_CODE
+    # Убираем заголовок, wildcard-домены, IP-only и фейковые сертификаты
+    tail -n +2 "$OUTPUT" 2>/dev/null \
+        | awk -F',' '{print $3}' \
+        | grep -v '^\*\.' \
+        | grep -v '^[0-9]' \
+        | grep -vi 'fake\|kubernetes\|ingress' \
+        | sort -u \
+        | head -20 || true
     echo "---"
     echo ""
     warn "Выбери домен из списка и проверь его:"

@@ -46,17 +46,20 @@ check_candidate() {
         echo -e "  ${RED}✗ Другой ASN — ТСПУ может заметить несоответствие${NC}"
     fi
 
-    # Проверяем TLS 1.3 и H2
+    # Проверяем TLS 1.3 и H2 (без форсирования версии — смотрим что согласовалось)
     local tls_info
-    tls_info=$(echo | openssl s_client -connect "${domain}:443" -alpn h2 -tls1_3 2>/dev/null | head -20)
+    tls_info=$(echo | openssl s_client -connect "${domain}:443" -alpn h2 2>&1 | head -30)
 
     if echo "$tls_info" | grep -q "TLSv1.3"; then
         echo -e "  ${GREEN}✓ TLS 1.3 поддерживается${NC}"
+    elif echo "$tls_info" | grep -qE "connect:|errno|refused|timeout|handshake"; then
+        echo -e "  ${RED}✗ Соединение не установлено${NC}"
+        echo -e "  $(echo "$tls_info" | grep -E 'connect:|errno|error' | head -1)"
     else
-        echo -e "  ${RED}✗ TLS 1.3 НЕ поддерживается${NC}"
+        echo -e "  ${RED}✗ TLS 1.3 НЕ поддерживается (согласовано: $(echo "$tls_info" | grep -oE 'TLSv[0-9.]+' | head -1))${NC}"
     fi
 
-    if echo "$tls_info" | grep -q "ALPN.*h2"; then
+    if echo "$tls_info" | grep -q "ALPN.*h2\|alpn.*h2"; then
         echo -e "  ${GREEN}✓ HTTP/2 поддерживается${NC}"
     else
         echo -e "  ${YELLOW}? HTTP/2 не подтверждён${NC}"
