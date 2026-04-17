@@ -38,7 +38,9 @@ check_candidate() {
     asn=$(whois "$ip" 2>/dev/null | grep -i -m1 'origin' | awk '{print $NF}' || true)
     echo -e "  ASN: ${asn:-не определён}"
 
-    if [[ "$asn" == "$SERVER_ASN" ]]; then
+    if [[ -z "$asn" || -z "$SERVER_ASN" ]]; then
+        echo -e "  ${YELLOW}? ASN не определён — проверь вручную${NC}"
+    elif [[ "$asn" == "$SERVER_ASN" ]]; then
         echo -e "  ${GREEN}✓ Тот же ASN — хороший кандидат!${NC}"
     else
         echo -e "  ${RED}✗ Другой ASN — ТСПУ может заметить несоответствие${NC}"
