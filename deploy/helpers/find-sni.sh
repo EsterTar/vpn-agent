@@ -48,7 +48,7 @@ check_candidate() {
 
     # Проверяем TLS 1.3 и H2 (без форсирования версии — смотрим что согласовалось)
     local tls_info
-    tls_info=$(echo | openssl s_client -connect "${domain}:443" -alpn h2 2>&1 | head -30)
+    tls_info=$(echo | openssl s_client -connect "${domain}:443" -alpn h2 2>&1)
 
     if echo "$tls_info" | grep -q "TLSv1.3"; then
         echo -e "  ${GREEN}✓ TLS 1.3 поддерживается${NC}"
