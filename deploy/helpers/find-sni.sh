@@ -16,7 +16,7 @@ SERVER_IP=$(curl -s4 ifconfig.me 2>/dev/null || curl -s4 icanhazip.com)
 echo -e "${GREEN}Твой IP:${NC} ${SERVER_IP}"
 
 # ASN сервера
-SERVER_ASN=$(whois "$SERVER_IP" 2>/dev/null | grep -i -m1 'origin' | awk '{print $NF}')
+SERVER_ASN=$(whois "$SERVER_IP" 2>/dev/null | grep -i -m1 'origin' | awk '{print $NF}' || true)
 echo -e "${GREEN}Твой ASN:${NC} ${SERVER_ASN:-не определён}"
 echo ""
 
@@ -35,7 +35,7 @@ check_candidate() {
 
     # ASN кандидата
     local asn
-    asn=$(whois "$ip" 2>/dev/null | grep -i -m1 'origin' | awk '{print $NF}')
+    asn=$(whois "$ip" 2>/dev/null | grep -i -m1 'origin' | awk '{print $NF}' || true)
     echo -e "  ASN: ${asn:-не определён}"
 
     if [[ "$asn" == "$SERVER_ASN" ]]; then
