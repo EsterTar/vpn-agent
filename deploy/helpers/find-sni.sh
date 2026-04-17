@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Помощник для выбора SNI-target
-# Показывает ASN сервера и проверяет кандидатов на совместимость с Reality
+# Показывает ASN/org сервера и проверяет кандидатов на совместимость с Reality
 # Запуск: bash find-sni.sh [домен-кандидат]
 # =============================================================================
 
@@ -12,19 +12,21 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-SERVER_IP=$(curl -s4 ifconfig.me 2>/dev/null || curl -s4 icanhazip.com)
-echo -e "${GREEN}Твой IP:${NC} ${SERVER_IP}"
+get_org() {
+    local ip=$1
+    curl -s --max-time 3 "https://ipinfo.io/${ip}/org" 2>/dev/null || true
+}
 
-# ASN сервера
-SERVER_ASN=$(whois "$SERVER_IP" 2>/dev/null | grep -i -m1 'origin' | awk '{print $NF}' || true)
-echo -e "${GREEN}Твой ASN:${NC} ${SERVER_ASN:-не определён}"
+SERVER_IP=$(curl -s4 ifconfig.me 2>/dev/null || curl -s4 icanhazip.com)
+SERVER_ORG=$(get_org "$SERVER_IP")
+echo -e "${GREEN}Твой IP:${NC} ${SERVER_IP}"
+echo -e "${GREEN}Твой провайдер:${NC} ${SERVER_ORG:-не определён}"
 echo ""
 
 check_candidate() {
     local domain=$1
     echo -e "${YELLOW}Проверяю: ${domain}${NC}"
 
-    # Резолвим IP
     local ip
     ip=$(dig +short "$domain" A 2>/dev/null | head -1)
     if [[ -z "$ip" ]]; then
@@ -33,20 +35,37 @@ check_candidate() {
     fi
     echo -e "  IP: ${ip}"
 
-    # ASN кандидата
-    local asn
-    asn=$(whois "$ip" 2>/dev/null | grep -i -m1 'origin' | awk '{print $NF}' || true)
-    echo -e "  ASN: ${asn:-не определён}"
+    local org
+    org=$(get_org "$ip")
+    echo -e "  Провайдер: ${org:-не определён}"
 
-    if [[ -z "$asn" || -z "$SERVER_ASN" ]]; then
-        echo -e "  ${YELLOW}? ASN не определён — проверь вручную${NC}"
-    elif [[ "$asn" == "$SERVER_ASN" ]]; then
-        echo -e "  ${GREEN}✓ Тот же ASN — хороший кандидат!${NC}"
+    if [[ -z "$org" || -z "$SERVER_ORG" ]]; then
+        echo -e "  ${YELLOW}? Провайдер не определён — проверь вручную${NC}"
     else
-        echo -e "  ${RED}✗ Другой ASN — ТСПУ может заметить несоответствие${NC}"
+        # Извлекаем номер ASN для точного сравнения, затем сравниваем имя org
+        local server_asn candidate_asn server_name candidate_name
+        server_asn=$(echo "$SERVER_ORG" | awk '{print $1}')
+        candidate_asn=$(echo "$org" | awk '{print $1}')
+        server_name=$(echo "$SERVER_ORG" | cut -d' ' -f2- | tr '[:upper:]' '[:lower:]')
+        candidate_name=$(echo "$org" | cut -d' ' -f2- | tr '[:upper:]' '[:lower:]')
+
+        if [[ "$server_asn" == "$candidate_asn" ]]; then
+            echo -e "  ${GREEN}✓ Тот же ASN (${server_asn}) — отличный кандидат!${NC}"
+        elif echo "$server_name $candidate_name" | grep -qiE "yandex|sber|vk |mail\.ru|mts|beeline|megafon|rostelecom"; then
+            # Проверяем совпадение по имени организации (один холдинг)
+            local server_brand candidate_brand
+            server_brand=$(echo "$server_name" | grep -ioE "yandex|sber|vk|mail\.ru|mts|beeline|megafon|rostelecom" | head -1)
+            candidate_brand=$(echo "$candidate_name" | grep -ioE "yandex|sber|vk|mail\.ru|mts|beeline|megafon|rostelecom" | head -1)
+            if [[ -n "$server_brand" && "$server_brand" == "$candidate_brand" ]]; then
+                echo -e "  ${GREEN}✓ Тот же холдинг (${server_asn} / ${candidate_asn}, оба ${server_brand}) — хороший кандидат${NC}"
+            else
+                echo -e "  ${RED}✗ Другой провайдер (${server_asn} vs ${candidate_asn}) — ТСПУ может заметить несоответствие${NC}"
+            fi
+        else
+            echo -e "  ${RED}✗ Другой провайдер (${server_asn} vs ${candidate_asn}) — ТСПУ может заметить несоответствие${NC}"
+        fi
     fi
 
-    # Проверяем TLS 1.3 и H2 (без форсирования версии — смотрим что согласовалось)
     local tls_info
     tls_info=$(echo | openssl s_client -connect "${domain}:443" -alpn h2 2>&1)
 
@@ -76,6 +95,6 @@ else
     echo "Использование:"
     echo "  bash find-sni.sh example.com another-site.com"
     echo ""
-    echo "Как найти кандидатов в своём ASN (${SERVER_ASN:-???}):"
-    echo "  Загугли: \"sites hosted on ${SERVER_ASN:-AS????}\" или используй bgp.tools"
+    echo "Как найти кандидатов в своём ASN (${SERVER_ORG:-???}):"
+    echo "  Загугли: \"sites hosted on $(echo "${SERVER_ORG}" | awk '{print $1}')\" или используй bgp.tools"
 fi
