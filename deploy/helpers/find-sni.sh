@@ -98,3 +98,5 @@ else
     echo "Как найти кандидатов в своём ASN (${SERVER_ORG:-???}):"
     echo "  Загугли: \"sites hosted on $(echo "${SERVER_ORG}" | awk '{print $1}')\" или используй bgp.tools"
 fi
+
+
